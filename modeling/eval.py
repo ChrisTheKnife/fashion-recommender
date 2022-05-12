@@ -73,7 +73,7 @@ def prepare_data(sub_file, start_date, end_date):
     return sub
 
 def average_precision_at_k(predicted, actual, cutoff=12):
-    """Computes average precision@k for given k and lists of predicted and actual
+    """Computes hitrate (precision) and average precision@k for given k and lists of predicted and actual
        item ids.
 
     Args:
@@ -83,6 +83,7 @@ def average_precision_at_k(predicted, actual, cutoff=12):
 
     Returns:
         float: Average precision at cutoff k.
+        float: Hitrate at k.
     """
     n_pred = len(predicted)
     if n_pred > cutoff:
@@ -98,11 +99,13 @@ def average_precision_at_k(predicted, actual, cutoff=12):
         how_many_of_k += is_relevant
         # compute precision at cutoff k (=#relevant_recommendations/#of_recommendations)
         avg_prec += how_many_of_k/(k+1) * is_relevant
+        # compute hitrate (precision)
+    hitrate = how_many_of_k / n_true
     # normalize with number of actually bought items (or cutoff)
-    return avg_prec / min(n_true, cutoff)
+    return avg_prec / min(n_true, cutoff), hitrate
 
 def mean_average_precision_at_k(sub, cutoff=12):
-    """Computes mean average precision at cutoff k given a submission, ground truth and
+    """Computes mean hitrate (precision) and mean average precision at cutoff k given a submission, ground truth and
        cutoff.
 
     Args:
@@ -111,16 +114,20 @@ def mean_average_precision_at_k(sub, cutoff=12):
 
     Returns:
         float: mean average precision at cutoff k
+        float: mean precision in percent
     """
     # compute mean average precision (at given cutoff)
     mean_avg_prec = 0.0
+    mean_hitrate = 0.0
     # iterate over all test customers and sum up contributions 
     for values in sub.itertuples():
         predicted = values.prediction.split(' ')
         actual = values.ground_truth.split(' ')
-        mean_avg_prec += average_precision_at_k(predicted, actual, cutoff)
+        mean_avg_prec_inc, mean_hitrate_inc = average_precision_at_k(predicted, actual, cutoff)
+        mean_avg_prec += mean_avg_prec_inc
+        mean_hitrate += mean_hitrate_inc
     # normalize with number of customers
-    return mean_avg_prec / len(sub)
+    return mean_avg_prec / len(sub), mean_hitrate / len(sub)
 
 def run_evaluation(sub_file, start_date, end_date, cutoff, run_name):
     """Load a given submission and evaluate it using the mean average
@@ -146,11 +153,11 @@ def run_evaluation(sub_file, start_date, end_date, cutoff, run_name):
         # load data
         sub_data = prepare_data(sub_file, start_date=start_date, end_date=end_date)
         # compute MAP@cutoff
-        logger.info('Computing mean average precision...')
-        map_at_k = mean_average_precision_at_k(sub_data, cutoff=cutoff)
-        logger.info(f'Done. Final Score: {map_at_k}')
+        logger.info('Computing hitrate and mean average precision...')
+        map_at_k, mean_hitrate = mean_average_precision_at_k(sub_data, cutoff=cutoff)
+        logger.info(f'Done. MAP@{cutoff}: {map_at_k} Mean Hitrate@{cutoff}: {mean_hitrate}')
     
-        mlflow.log_metric(f'MAP_at_{cutoff}', map_at_k)
+        mlflow.log_metrics({f'MAP_at_{cutoff}':map_at_k, f'mean_hitrate_at_{cutoff}':mean_hitrate})
         params = {
             'start_date': start_date,
             'end_date': end_date,
